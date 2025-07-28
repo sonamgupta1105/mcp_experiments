@@ -21,7 +21,6 @@ An intelligent research paper decoder that uses OpenAI's Assistants API with MCP
 
 - Python 3.8+
 - OpenAI API key
-- Internet connection for web search and MCP server access
 
 ## Installation
 
