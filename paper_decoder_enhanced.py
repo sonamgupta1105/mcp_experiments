@@ -99,8 +99,14 @@ def call_openai_with_tools(prompt, model="gpt-4o", use_deepwiki=False, use_web_s
 def identify_technical_terms(chunk):
     """Identify technical terms that need explanation using web search"""
     prompt = f"""
-    Extract technical terms, concepts, and jargon from this research paper text that a non-expert might not understand.
-    Return ONLY a JSON array of strings with the technical terms, nothing else.
+    Extract unique technical terms, concepts, and jargon from this research paper text that a non-expert might not understand.
+    
+    IMPORTANT GUIDELINES:
+    1. Group similar concepts together (e.g., "agentic systems", "agentic AI systems", "agentic artificial intelligence" should be consolidated as "agentic systems")
+    2. Avoid JSON formatting artifacts like "```json" or "```"
+    3. Focus on distinct, meaningful technical concepts
+    4. Return ONLY a JSON array of strings with the technical terms, nothing else.
+    
     Example format: ["term1", "term2", "term3"]
     
     Text: {chunk}
@@ -113,7 +119,34 @@ def identify_technical_terms(chunk):
         if response_str.startswith('[') and response_str.endswith(']'):
             terms = json.loads(response_str)
             if isinstance(terms, list):
-                return [term for term in terms if term and isinstance(term, str)]
+                # Filter out JSON artifacts and clean terms
+                cleaned_terms = []
+                for term in terms:
+                    if term and isinstance(term, str):
+                        # Remove JSON formatting artifacts
+                        clean_term = term.replace('```json', '').replace('```', '').strip()
+                        if clean_term and len(clean_term) > 2 and not clean_term.startswith('```'):
+                            cleaned_terms.append(clean_term)
+                
+                # Deduplicate similar terms
+                deduplicated_terms = []
+                for term in cleaned_terms:
+                    # Check if this term is too similar to existing ones
+                    is_duplicate = False
+                    for existing_term in deduplicated_terms:
+                        # Simple similarity check - if one term contains the other, keep the more specific one
+                        if term.lower() in existing_term.lower() or existing_term.lower() in term.lower():
+                            # Keep the longer/more specific term
+                            if len(term) > len(existing_term):
+                                deduplicated_terms.remove(existing_term)
+                                deduplicated_terms.append(term)
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        deduplicated_terms.append(term)
+                
+                return deduplicated_terms[:8]  # Limit to 8 most important terms
     except Exception:
         pass
     
@@ -121,7 +154,7 @@ def identify_technical_terms(chunk):
     import re
     lines = response.split('\n')
     terms = [line.strip().strip('-*•').strip() for line in lines if line.strip() and len(line.strip()) > 2]
-    return terms[:10]
+    return terms[:8]
 
 def explain_technical_term_with_web_search(term):
     """Explain a technical term using web search"""
@@ -178,37 +211,26 @@ def process_paper_enhanced(file_path):
     """
     Enhanced workflow: Extract text, identify terms, explain with web search, find repositories with DeepWiki
     """
-    print("=== Enhanced Paper Decoder ===")
-    
     # Extract and chunk text
     full_text = extract_text_from_pdf(file_path)
     chunks = chunk_text(full_text)
     
     # Process first chunk for demonstration
     chunk = chunks[0]
-    print(f"\nProcessing chunk: {len(chunk)} characters")
     
     # Step 1: Identify technical terms
-    print("\n1. Identifying technical terms...")
     technical_terms = identify_technical_terms(chunk)
-    print(f"Found {len(technical_terms)} technical terms: {technical_terms}")
     
     # Step 2: Explain technical terms using web search
-    print("\n2. Explaining technical terms with web search...")
     explanations = {}
     for term in technical_terms[:5]:  # Limit to first 5 terms
-        print(f"   Explaining: {term}")
         explanation = explain_technical_term_with_web_search(term)
         explanations[term] = explanation
-        print(f"   ✓ {term}: {explanation[:100]}...")
     
     # Step 3: Find relevant repositories using DeepWiki
-    print("\n3. Finding relevant repositories with DeepWiki...")
     repositories = find_relevant_repositories(chunk)
-    print(f"Repository suggestions: {repositories[:200]}...")
     
     # Step 4: Create comprehensive explanation
-    print("\n4. Creating comprehensive explanation...")
     comprehensive_explanation = explain_paper_with_enhanced_tools(chunk)
     
     return {
@@ -221,7 +243,7 @@ def process_paper_enhanced(file_path):
 
 def main():
     """Main function to run the enhanced paper decoder"""
-    file_path = "RL.pdf"
+    file_path = "SLMs.pdf"
     
     try:
         result = process_paper_enhanced(file_path)
